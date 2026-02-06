@@ -690,6 +690,8 @@ document.addEventListener("DOMContentLoaded", () => {
   let fullscreenSongsView = null;
   let selectedSongIndex = 0;
   let fullscreenSongsList = [];
+  let allSongsData = []; // Store all songs for filtering
+  let searchInput = null; // Store reference to search input
 
   // Show fullscreen saved songs view
   function showFullscreenSavedSongs() {
@@ -705,6 +707,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const header = document.createElement("div");
     header.classList.add("fullscreen-songs-header");
 
+    const headerTop = document.createElement("div");
+    headerTop.classList.add("fullscreen-songs-header-top");
+
     const title = document.createElement("h2");
     title.textContent = "Your Saved Songs";
 
@@ -713,8 +718,24 @@ document.addEventListener("DOMContentLoaded", () => {
     closeButton.textContent = "Close";
     closeButton.addEventListener("click", closeFullscreenSavedSongs);
 
-    header.appendChild(title);
-    header.appendChild(closeButton);
+    headerTop.appendChild(title);
+    headerTop.appendChild(closeButton);
+    header.appendChild(headerTop);
+
+    // Add search input
+    const searchContainer = document.createElement("div");
+    searchContainer.classList.add("fullscreen-songs-search");
+    
+    searchInput = document.createElement("input");
+    searchInput.type = "text";
+    searchInput.placeholder = "Search songs by title or artist...";
+    searchInput.classList.add("fullscreen-songs-search-input");
+    searchInput.addEventListener("input", handleSearchInput);
+    searchInput.addEventListener("keydown", handleSearchKeydown);
+    
+    searchContainer.appendChild(searchInput);
+    header.appendChild(searchContainer);
+    
     fullscreenSongsView.appendChild(header);
 
     // Content area
@@ -733,6 +754,7 @@ document.addEventListener("DOMContentLoaded", () => {
       // Sort by newest first
       savedSongsEntries.sort((a, b) => b[0].localeCompare(a[0]));
       fullscreenSongsList = savedSongsEntries;
+      allSongsData = savedSongsEntries; // Store all songs for filtering
       selectedSongIndex = 0;
 
       const songsList = document.createElement("ul");
@@ -820,8 +842,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const instructions = document.createElement("div");
     instructions.classList.add("fullscreen-songs-instructions");
     instructions.innerHTML = `
+      <strong>Search:</strong> Type to filter • 
       <kbd>↑</kbd><kbd>↓</kbd> Navigate • <kbd>Enter</kbd> Load Song • 
-      <kbd>R</kbd> Rename • <kbd>Delete</kbd> Remove • <kbd>Esc</kbd> Close
+      <kbd>R</kbd> Rename • <kbd>Delete</kbd> Remove • <kbd>Esc</kbd> Clear/Close
     `;
     fullscreenSongsView.appendChild(instructions);
 
@@ -831,9 +854,10 @@ document.addEventListener("DOMContentLoaded", () => {
     // Add event listeners for keyboard navigation
     document.addEventListener("keydown", handleFullscreenSongsKeydown);
 
-    // Make the view focusable and focus it
-    fullscreenSongsView.tabIndex = -1;
-    fullscreenSongsView.focus();
+    // Focus the search input
+    if (searchInput) {
+      setTimeout(() => searchInput.focus(), 100);
+    }
   }
 
   // Close fullscreen saved songs view
@@ -843,6 +867,8 @@ document.addEventListener("DOMContentLoaded", () => {
       document.body.removeChild(fullscreenSongsView);
       fullscreenSongsView = null;
       fullscreenSongsList = [];
+      allSongsData = [];
+      searchInput = null;
       selectedSongIndex = 0;
     }
   }
@@ -860,6 +886,9 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
+    // Don't intercept typing in search input, except for specific navigation keys
+    const isSearchFocused = document.activeElement === searchInput;
+    
     switch (e.key) {
       case "ArrowUp":
         e.preventDefault();
@@ -877,21 +906,193 @@ document.addEventListener("DOMContentLoaded", () => {
         break;
 
       case "Delete":
+        // Only delete song if not focused on search input
+        if (!isSearchFocused) {
+          e.preventDefault();
+          deleteSelectedSong();
+        }
+        break;
+
       case "Backspace":
-        e.preventDefault();
-        deleteSelectedSong();
+        // Only delete song if not focused on search input
+        if (!isSearchFocused) {
+          e.preventDefault();
+          deleteSelectedSong();
+        }
         break;
 
       case "r":
       case "R":
-        e.preventDefault();
-        renameSelectedSong();
+        // Only rename if not focused on search input
+        if (!isSearchFocused) {
+          e.preventDefault();
+          renameSelectedSong();
+        }
         break;
 
       case "Escape":
         e.preventDefault();
-        closeFullscreenSavedSongs();
+        // If search has text, clear it; otherwise close the view
+        if (isSearchFocused && searchInput.value) {
+          searchInput.value = "";
+          handleSearchInput();
+        } else {
+          closeFullscreenSavedSongs();
+        }
         break;
+    }
+  }
+
+  // Handle search input keydown for special keys
+  function handleSearchKeydown(e) {
+    // These keys are handled by handleFullscreenSongsKeydown
+    // No need to do anything special here
+  }
+
+  // Handle search input changes
+  function handleSearchInput() {
+    if (!searchInput) return;
+    
+    const searchTerm = searchInput.value.toLowerCase().trim();
+    
+    // Filter songs based on search term
+    if (!searchTerm) {
+      // Show all songs if search is empty
+      fullscreenSongsList = allSongsData;
+    } else {
+      // Filter songs by title or artist
+      fullscreenSongsList = allSongsData.filter(([id, song]) => {
+        const titleMatch = song.title.toLowerCase().includes(searchTerm);
+        const artistMatch = song.artist.toLowerCase().includes(searchTerm);
+        return titleMatch || artistMatch;
+      });
+    }
+    
+    // Reset selected index
+    selectedSongIndex = 0;
+    
+    // Re-render the songs list
+    renderFilteredSongs();
+  }
+
+  // Render the filtered songs list
+  function renderFilteredSongs() {
+    const content = document.querySelector(".fullscreen-songs-content");
+    if (!content) return;
+    
+    // Get or create the songs list element
+    let songsList = document.getElementById("fullscreen-songs-list");
+    
+    if (fullscreenSongsList.length === 0) {
+      // Remove the list if it exists
+      if (songsList) {
+        songsList.remove();
+      }
+      
+      // Remove any existing empty message
+      const existingEmpty = content.querySelector(".fullscreen-songs-empty");
+      if (existingEmpty) {
+        existingEmpty.remove();
+      }
+      
+      // Add empty message
+      const emptyMessage = document.createElement("div");
+      emptyMessage.classList.add("fullscreen-songs-empty");
+      emptyMessage.textContent = "No songs match your search.";
+      content.appendChild(emptyMessage);
+      return;
+    }
+    
+    // Remove any empty message
+    const existingEmpty = content.querySelector(".fullscreen-songs-empty");
+    if (existingEmpty) {
+      existingEmpty.remove();
+    }
+    
+    // Create the list if it doesn't exist
+    if (!songsList) {
+      songsList = document.createElement("ul");
+      songsList.classList.add("fullscreen-songs-list");
+      songsList.id = "fullscreen-songs-list";
+      content.appendChild(songsList);
+    }
+    
+    // Clear current list content
+    songsList.innerHTML = "";
+    
+    // Render filtered songs
+    fullscreenSongsList.forEach(([id, song], index) => {
+      const songItem = document.createElement("li");
+      songItem.dataset.songId = id;
+      songItem.dataset.index = index;
+
+      if (index === selectedSongIndex) {
+        songItem.classList.add("selected");
+      }
+
+      // Song info
+      const songInfo = document.createElement("div");
+      songInfo.classList.add("fullscreen-songs-info");
+
+      const songTitle = document.createElement("div");
+      songTitle.classList.add("fullscreen-songs-title");
+      songTitle.textContent = song.title;
+
+      const songArtist = document.createElement("div");
+      songArtist.classList.add("fullscreen-songs-artist");
+      songArtist.textContent = `by ${song.artist}`;
+
+      songInfo.appendChild(songTitle);
+      songInfo.appendChild(songArtist);
+
+      // Actions
+      const actions = document.createElement("div");
+      actions.classList.add("fullscreen-songs-actions");
+
+      const loadButton = document.createElement("button");
+      loadButton.classList.add("fullscreen-songs-load");
+      loadButton.textContent = "Load";
+      loadButton.addEventListener("click", () => {
+        displaySong(song);
+        closeFullscreenSavedSongs();
+      });
+
+      const renameButton = document.createElement("button");
+      renameButton.classList.add("fullscreen-songs-rename");
+      renameButton.textContent = "Rename";
+      renameButton.addEventListener("click", (e) => {
+        e.stopPropagation();
+        renameSongInFullscreen(id, song, songItem);
+      });
+
+      const deleteButton = document.createElement("button");
+      deleteButton.classList.add("fullscreen-songs-delete");
+      deleteButton.textContent = "Delete";
+      deleteButton.addEventListener("click", (e) => {
+        e.stopPropagation();
+        deleteSongInFullscreen(id, song);
+      });
+
+      actions.appendChild(loadButton);
+      actions.appendChild(renameButton);
+      actions.appendChild(deleteButton);
+
+      songItem.appendChild(songInfo);
+      songItem.appendChild(actions);
+
+      // Add click handler for song selection
+      songItem.addEventListener("click", () => {
+        selectSongInFullscreen(index);
+      });
+
+      songsList.appendChild(songItem);
+    });
+    
+    // Select first song if available
+    if (fullscreenSongsList.length > 0) {
+      setTimeout(() => {
+        selectSongInFullscreen(0);
+      }, 10);
     }
   }
 
@@ -999,6 +1200,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Update the fullscreenSongsList array
     fullscreenSongsList[selectedSongIndex][1] = song;
+    
+    // Update the allSongsData array
+    const allSongsIndex = allSongsData.findIndex(([songId]) => songId === id);
+    if (allSongsIndex !== -1) {
+      allSongsData[allSongsIndex][1] = song;
+    }
   }
 
   // Delete song in fullscreen view
@@ -1013,8 +1220,11 @@ document.addEventListener("DOMContentLoaded", () => {
         songItem.remove();
       }
 
-      // Update fullscreenSongsList and selectedIndex
+      // Update both filtered and all songs lists
       fullscreenSongsList = fullscreenSongsList.filter(
+        ([songId]) => songId !== id
+      );
+      allSongsData = allSongsData.filter(
         ([songId]) => songId !== id
       );
 
@@ -1023,10 +1233,17 @@ document.addEventListener("DOMContentLoaded", () => {
         selectedSongIndex = Math.max(0, fullscreenSongsList.length - 1);
       }
 
-      // If no songs left, show empty message
+      // If no songs left in filtered list
       if (fullscreenSongsList.length === 0) {
-        closeFullscreenSavedSongs();
-        showFullscreenSavedSongs(); // Reopen to show empty state
+        // Check if there are songs in allSongsData (i.e., search is active)
+        if (allSongsData.length === 0) {
+          // No songs at all, close and reopen to show empty state
+          closeFullscreenSavedSongs();
+          showFullscreenSavedSongs();
+        } else {
+          // Songs exist but not in current search, show no matches message
+          renderFilteredSongs();
+        }
       } else {
         // Re-select current song
         selectSongInFullscreen(selectedSongIndex);
