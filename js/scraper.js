@@ -709,9 +709,9 @@ document.addEventListener("DOMContentLoaded", () => {
               currentSongs[existingId] = song;
             } else {
               newSongs++;
-              // Add as new song - set dateAdded to now if not present
-              if (!song.dateAdded || song.dateAdded === id) {
-                song.dateAdded = new Date().toISOString();
+              // Add as new song - preserve original dateAdded or use key as fallback
+              if (!song.dateAdded) {
+                song.dateAdded = id; // Use the timestamp key as fallback for old exports
               }
               currentSongs[id] = song;
             }
