@@ -8,6 +8,11 @@ document.addEventListener("DOMContentLoaded", () => {
   // Initialize local storage for saved songs
   const localSongs = JSON.parse(localStorage.getItem("savedSongs") || "{}");
 
+  // Play count tracking
+  let playCountTimer = null;
+  let currentSongForPlayCount = null;
+  let playCountTimestamp = null;
+
   // Make a function to update the localSongs cache from teleprompter.js edit mode
   window.updateLocalSongsCache = function (updatedSongs) {
     // Update the in-memory cache to match localStorage
@@ -33,7 +38,52 @@ document.addEventListener("DOMContentLoaded", () => {
     errorLoad.classList.remove("hidden");
   }
 
+  // Increment play count for a song
+  function incrementPlayCount(song) {
+    // Find the song in localStorage
+    const savedSongsData = JSON.parse(
+      localStorage.getItem("savedSongs") || "{}"
+    );
+
+    const entries = Object.entries(savedSongsData);
+    const match = entries.find(
+      ([id, savedSong]) =>
+        savedSong.title === song.title && savedSong.artist === song.artist
+    );
+
+    if (match) {
+      const [id, savedSong] = match;
+      // Initialize playCount if it doesn't exist
+      if (!savedSong.playCount) {
+        savedSong.playCount = 0;
+      }
+      savedSong.playCount++;
+      savedSongsData[id] = savedSong;
+      localStorage.setItem("savedSongs", JSON.stringify(savedSongsData));
+
+      // Update the in-memory cache
+      localSongs[id] = savedSong;
+
+      console.log(
+        `Play count incremented for "${song.title}": ${savedSong.playCount}`
+      );
+    }
+  }
+
   function displaySong(song) {
+    // Stop any existing play count timer
+    if (playCountTimer) {
+      clearTimeout(playCountTimer);
+      playCountTimer = null;
+    }
+
+    // Start new play count timer (20 seconds)
+    currentSongForPlayCount = song;
+    playCountTimestamp = new Date().toISOString();
+    playCountTimer = setTimeout(() => {
+      incrementPlayCount(song);
+    }, 20000); // 20 seconds
+
     // Clear any existing content
     songContent.innerHTML = "";
 
@@ -124,6 +174,13 @@ document.addEventListener("DOMContentLoaded", () => {
       console.log("Saving song to storage (not a navigation event)");
       // Save to local storage with the current timestamp as key
       const timestamp = new Date().toISOString();
+      // Initialize playCount and dateAdded for new songs
+      if (!song.playCount) {
+        song.playCount = 0;
+      }
+      if (!song.dateAdded) {
+        song.dateAdded = timestamp;
+      }
       localSongs[timestamp] = song;
       localStorage.setItem("savedSongs", JSON.stringify(localSongs));
 
@@ -618,6 +675,16 @@ document.addEventListener("DOMContentLoaded", () => {
               return; // Skip invalid entries
             }
 
+            // Initialize playCount if it doesn't exist
+            if (typeof song.playCount === "undefined") {
+              song.playCount = 0;
+            }
+
+            // Initialize dateAdded if it doesn't exist (for old exports)
+            if (!song.dateAdded) {
+              song.dateAdded = id; // Use the key as fallback
+            }
+
             totalImported++;
 
             // Check if song already exists
@@ -629,12 +696,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
             if (existingEntry) {
               updatedSongs++;
-              // Update existing song if import has more data
-              const [existingId, _] = existingEntry;
+              // Update existing song, preserving playCount if higher and dateAdded
+              const [existingId, existingSong] = existingEntry;
+              const existingPlayCount = existingSong.playCount || 0;
+              const importedPlayCount = song.playCount || 0;
+              // Keep the higher play count
+              song.playCount = Math.max(existingPlayCount, importedPlayCount);
+              // Preserve the original dateAdded (keep the earlier one)
+              if (existingSong.dateAdded) {
+                song.dateAdded = existingSong.dateAdded;
+              }
               currentSongs[existingId] = song;
             } else {
               newSongs++;
-              // Add as new song with original timestamp if possible
+              // Add as new song - set dateAdded to now if not present
+              if (!song.dateAdded || song.dateAdded === id) {
+                song.dateAdded = new Date().toISOString();
+              }
               currentSongs[id] = song;
             }
           });
@@ -692,6 +770,100 @@ document.addEventListener("DOMContentLoaded", () => {
   let fullscreenSongsList = [];
   let allSongsData = []; // Store all songs for filtering
   let searchInput = null; // Store reference to search input
+  let currentSortMode = "newest"; // Default sort mode
+  const sortModes = [
+    { id: "newest", label: "Newest First" },
+    { id: "songAZ", label: "Song Name (A-Ö)" },
+    { id: "songZA", label: "Song Name (Ö-A)" },
+    { id: "artistAZ", label: "Artist (A-Ö)" },
+    { id: "artistZA", label: "Artist (Ö-A)" },
+    { id: "playCount", label: "Most Played" },
+  ];
+
+  // Function to sort songs based on current sort mode
+  function sortSongs(songsArray, sortMode) {
+    const sorted = [...songsArray]; // Create a copy to avoid mutating original
+
+    switch (sortMode) {
+      case "songAZ":
+        sorted.sort((a, b) =>
+          a[1].title.localeCompare(b[1].title, "fi", { sensitivity: "base" })
+        );
+        break;
+      case "songZA":
+        sorted.sort((a, b) =>
+          b[1].title.localeCompare(a[1].title, "fi", { sensitivity: "base" })
+        );
+        break;
+      case "artistAZ":
+        sorted.sort((a, b) =>
+          a[1].artist.localeCompare(b[1].artist, "fi", { sensitivity: "base" })
+        );
+        break;
+      case "artistZA":
+        sorted.sort((a, b) =>
+          b[1].artist.localeCompare(a[1].artist, "fi", { sensitivity: "base" })
+        );
+        break;
+      case "playCount":
+        sorted.sort((a, b) => {
+          const countA = a[1].playCount || 0;
+          const countB = b[1].playCount || 0;
+          return countB - countA; // Most played first
+        });
+        break;
+      case "newest":
+      default:
+        sorted.sort((a, b) => {
+          const dateA = a[1].dateAdded || a[0];
+          const dateB = b[1].dateAdded || b[0];
+          return dateB.localeCompare(dateA);
+        });
+        break;
+    }
+
+    return sorted;
+  }
+
+  // Apply current sort and re-render the list
+  function applySortAndRender() {
+    // Get current search term
+    const searchTerm = searchInput ? searchInput.value.toLowerCase().trim() : "";
+    
+    // Start with all songs
+    let songsToSort = allSongsData;
+    
+    // Apply search filter if needed
+    if (searchTerm) {
+      songsToSort = allSongsData.filter(([id, song]) => {
+        const titleMatch = song.title.toLowerCase().includes(searchTerm);
+        const artistMatch = song.artist.toLowerCase().includes(searchTerm);
+        return titleMatch || artistMatch;
+      });
+    }
+    
+    // Apply sorting
+    fullscreenSongsList = sortSongs(songsToSort, currentSortMode);
+    selectedSongIndex = 0;
+    
+    // Re-render
+    renderFilteredSongs();
+  }
+
+  // Cycle to next sort mode (for keyboard shortcut)
+  function cycleNextSortMode() {
+    const currentIndex = sortModes.findIndex(mode => mode.id === currentSortMode);
+    const nextIndex = (currentIndex + 1) % sortModes.length;
+    currentSortMode = sortModes[nextIndex].id;
+    
+    // Update the select element if it exists
+    const sortSelect = document.getElementById("sort-mode-select");
+    if (sortSelect) {
+      sortSelect.value = currentSortMode;
+    }
+    
+    applySortAndRender();
+  }
 
   // Show fullscreen saved songs view
   function showFullscreenSavedSongs() {
@@ -711,16 +883,7 @@ document.addEventListener("DOMContentLoaded", () => {
     headerTop.classList.add("fullscreen-songs-header-top");
 
     const title = document.createElement("h2");
-    title.textContent = "Your Saved Songs";
-
-    const closeButton = document.createElement("button");
-    closeButton.classList.add("fullscreen-songs-close");
-    closeButton.textContent = "Close";
-    closeButton.addEventListener("click", closeFullscreenSavedSongs);
-
-    headerTop.appendChild(title);
-    headerTop.appendChild(closeButton);
-    header.appendChild(headerTop);
+    title.textContent = "Saved Songs";
 
     // Add search input
     const searchContainer = document.createElement("div");
@@ -728,13 +891,53 @@ document.addEventListener("DOMContentLoaded", () => {
     
     searchInput = document.createElement("input");
     searchInput.type = "text";
-    searchInput.placeholder = "Search songs by title or artist...";
+    searchInput.placeholder = "Search...";
     searchInput.classList.add("fullscreen-songs-search-input");
     searchInput.addEventListener("input", handleSearchInput);
     searchInput.addEventListener("keydown", handleSearchKeydown);
     
     searchContainer.appendChild(searchInput);
-    header.appendChild(searchContainer);
+
+    // Add sort selector
+    const sortContainer = document.createElement("div");
+    sortContainer.classList.add("fullscreen-songs-sort");
+
+    const sortLabel = document.createElement("span");
+    sortLabel.classList.add("sort-label");
+    sortLabel.textContent = "Sort:";
+
+    const sortSelect = document.createElement("select");
+    sortSelect.id = "sort-mode-select";
+    sortSelect.classList.add("sort-select");
+
+    sortModes.forEach((mode) => {
+      const option = document.createElement("option");
+      option.value = mode.id;
+      option.textContent = mode.label;
+      if (mode.id === currentSortMode) {
+        option.selected = true;
+      }
+      sortSelect.appendChild(option);
+    });
+
+    sortSelect.addEventListener("change", (e) => {
+      currentSortMode = e.target.value;
+      applySortAndRender();
+    });
+
+    sortContainer.appendChild(sortLabel);
+    sortContainer.appendChild(sortSelect);
+
+    const closeButton = document.createElement("button");
+    closeButton.classList.add("fullscreen-songs-close");
+    closeButton.textContent = "Close";
+    closeButton.addEventListener("click", closeFullscreenSavedSongs);
+
+    headerTop.appendChild(title);
+    headerTop.appendChild(searchContainer);
+    headerTop.appendChild(sortContainer);
+    headerTop.appendChild(closeButton);
+    header.appendChild(headerTop);
     
     fullscreenSongsView.appendChild(header);
 
@@ -751,17 +954,18 @@ document.addEventListener("DOMContentLoaded", () => {
         "No songs saved yet. Add a song to get started!";
       content.appendChild(emptyMessage);
     } else {
-      // Sort by newest first
-      savedSongsEntries.sort((a, b) => b[0].localeCompare(a[0]));
-      fullscreenSongsList = savedSongsEntries;
-      allSongsData = savedSongsEntries; // Store all songs for filtering
+      // Store all songs data
+      allSongsData = savedSongsEntries;
+      
+      // Apply sorting
+      fullscreenSongsList = sortSongs(savedSongsEntries, currentSortMode);
       selectedSongIndex = 0;
 
       const songsList = document.createElement("ul");
       songsList.classList.add("fullscreen-songs-list");
       songsList.id = "fullscreen-songs-list";
 
-      savedSongsEntries.forEach(([id, song], index) => {
+      fullscreenSongsList.forEach(([id, song], index) => {
         const songItem = document.createElement("li");
         songItem.dataset.songId = id;
         songItem.dataset.index = index;
@@ -782,8 +986,21 @@ document.addEventListener("DOMContentLoaded", () => {
         songArtist.classList.add("fullscreen-songs-artist");
         songArtist.textContent = `by ${song.artist}`;
 
-        songInfo.appendChild(songTitle);
-        songInfo.appendChild(songArtist);
+        // Add play count if it exists and is greater than 0
+        const playCount = song.playCount || 0;
+        if (playCount > 0) {
+          const playCountDiv = document.createElement("div");
+          playCountDiv.classList.add("fullscreen-songs-playcount");
+          playCountDiv.textContent = `Played ${playCount} time${
+            playCount !== 1 ? "s" : ""
+          }`;
+          songInfo.appendChild(songTitle);
+          songInfo.appendChild(songArtist);
+          songInfo.appendChild(playCountDiv);
+        } else {
+          songInfo.appendChild(songTitle);
+          songInfo.appendChild(songArtist);
+        }
 
         // Actions
         const actions = document.createElement("div");
@@ -844,7 +1061,7 @@ document.addEventListener("DOMContentLoaded", () => {
     instructions.innerHTML = `
       <strong>Search:</strong> Type to filter • 
       <kbd>↑</kbd><kbd>↓</kbd> Navigate • <kbd>Enter</kbd> Load Song • 
-      <kbd>R</kbd> Rename • <kbd>Delete</kbd> Remove • <kbd>Esc</kbd> Clear/Close
+      <kbd>O</kbd> Change Sort • <kbd>R</kbd> Rename • <kbd>Delete</kbd> Remove • <kbd>Esc</kbd> Clear/Close
     `;
     fullscreenSongsView.appendChild(instructions);
 
@@ -930,6 +1147,15 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         break;
 
+      case "o":
+      case "O":
+        // Only cycle sort mode if not focused on search input
+        if (!isSearchFocused) {
+          e.preventDefault();
+          cycleNextSortMode();
+        }
+        break;
+
       case "Escape":
         e.preventDefault();
         // If search has text, clear it; otherwise close the view
@@ -953,26 +1179,8 @@ document.addEventListener("DOMContentLoaded", () => {
   function handleSearchInput() {
     if (!searchInput) return;
     
-    const searchTerm = searchInput.value.toLowerCase().trim();
-    
-    // Filter songs based on search term
-    if (!searchTerm) {
-      // Show all songs if search is empty
-      fullscreenSongsList = allSongsData;
-    } else {
-      // Filter songs by title or artist
-      fullscreenSongsList = allSongsData.filter(([id, song]) => {
-        const titleMatch = song.title.toLowerCase().includes(searchTerm);
-        const artistMatch = song.artist.toLowerCase().includes(searchTerm);
-        return titleMatch || artistMatch;
-      });
-    }
-    
-    // Reset selected index
-    selectedSongIndex = 0;
-    
-    // Re-render the songs list
-    renderFilteredSongs();
+    // Use the new unified sort and render function
+    applySortAndRender();
   }
 
   // Render the filtered songs list
@@ -1042,8 +1250,21 @@ document.addEventListener("DOMContentLoaded", () => {
       songArtist.classList.add("fullscreen-songs-artist");
       songArtist.textContent = `by ${song.artist}`;
 
-      songInfo.appendChild(songTitle);
-      songInfo.appendChild(songArtist);
+      // Add play count if it exists and is greater than 0
+      const playCount = song.playCount || 0;
+      if (playCount > 0) {
+        const playCountDiv = document.createElement("div");
+        playCountDiv.classList.add("fullscreen-songs-playcount");
+        playCountDiv.textContent = `Played ${playCount} time${
+          playCount !== 1 ? "s" : ""
+        }`;
+        songInfo.appendChild(songTitle);
+        songInfo.appendChild(songArtist);
+        songInfo.appendChild(playCountDiv);
+      } else {
+        songInfo.appendChild(songTitle);
+        songInfo.appendChild(songArtist);
+      }
 
       // Actions
       const actions = document.createElement("div");
@@ -1186,26 +1407,24 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    // Update song data
-    song.title = newTitle.trim();
-    song.artist = newArtist.trim();
-    localSongs[id] = song;
+    // Update song data in localStorage
+    const updatedSong = { ...song };
+    updatedSong.title = newTitle.trim();
+    updatedSong.artist = newArtist.trim();
+    localSongs[id] = updatedSong;
     localStorage.setItem("savedSongs", JSON.stringify(localSongs));
 
-    // Update UI
-    const titleElement = songItem.querySelector(".fullscreen-songs-title");
-    const artistElement = songItem.querySelector(".fullscreen-songs-artist");
-    if (titleElement) titleElement.textContent = song.title;
-    if (artistElement) artistElement.textContent = `by ${song.artist}`;
-
-    // Update the fullscreenSongsList array
-    fullscreenSongsList[selectedSongIndex][1] = song;
+    // Reload data from localStorage to get fresh object references
+    const savedSongsData = JSON.parse(
+      localStorage.getItem("savedSongs") || "{}"
+    );
+    const savedSongsEntries = Object.entries(savedSongsData);
     
-    // Update the allSongsData array
-    const allSongsIndex = allSongsData.findIndex(([songId]) => songId === id);
-    if (allSongsIndex !== -1) {
-      allSongsData[allSongsIndex][1] = song;
-    }
+    // Update allSongsData with fresh references
+    allSongsData = savedSongsEntries;
+    
+    // Re-apply current sort and search to refresh the view
+    applySortAndRender();
   }
 
   // Delete song in fullscreen view
