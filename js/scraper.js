@@ -77,12 +77,12 @@ document.addEventListener("DOMContentLoaded", () => {
       playCountTimer = null;
     }
 
-    // Start new play count timer (20 seconds)
+    // Start new play count timer (2 minutes)
     currentSongForPlayCount = song;
     playCountTimestamp = new Date().toISOString();
     playCountTimer = setTimeout(() => {
       incrementPlayCount(song);
-    }, 20000); // 20 seconds
+    }, 120000); // 2 minutes
 
     // Clear any existing content
     songContent.innerHTML = "";
@@ -773,11 +773,13 @@ document.addEventListener("DOMContentLoaded", () => {
   let currentSortMode = "newest"; // Default sort mode
   const sortModes = [
     { id: "newest", label: "Newest First" },
+    { id: "oldest", label: "Oldest First" },
     { id: "songAZ", label: "Song Name (A-Ö)" },
     { id: "songZA", label: "Song Name (Ö-A)" },
     { id: "artistAZ", label: "Artist (A-Ö)" },
     { id: "artistZA", label: "Artist (Ö-A)" },
     { id: "playCount", label: "Most Played" },
+    { id: "leastPlayed", label: "Least Played" },
   ];
 
   // Function to sort songs based on current sort mode
@@ -810,6 +812,20 @@ document.addEventListener("DOMContentLoaded", () => {
           const countA = a[1].playCount || 0;
           const countB = b[1].playCount || 0;
           return countB - countA; // Most played first
+        });
+        break;
+      case "leastPlayed":
+        sorted.sort((a, b) => {
+          const countA = a[1].playCount || 0;
+          const countB = b[1].playCount || 0;
+          return countA - countB; // Least played first
+        });
+        break;
+      case "oldest":
+        sorted.sort((a, b) => {
+          const dateA = a[1].dateAdded || a[0];
+          const dateB = b[1].dateAdded || b[0];
+          return dateA.localeCompare(dateB);
         });
         break;
       case "newest":
