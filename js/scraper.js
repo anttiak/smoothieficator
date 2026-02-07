@@ -881,6 +881,21 @@ document.addEventListener("DOMContentLoaded", () => {
     applySortAndRender();
   }
 
+  // Cycle to previous sort mode (for keyboard shortcut)
+  function cyclePrevSortMode() {
+    const currentIndex = sortModes.findIndex(mode => mode.id === currentSortMode);
+    const prevIndex = (currentIndex - 1 + sortModes.length) % sortModes.length;
+    currentSortMode = sortModes[prevIndex].id;
+    
+    // Update the select element if it exists
+    const sortSelect = document.getElementById("sort-mode-select");
+    if (sortSelect) {
+      sortSelect.value = currentSortMode;
+    }
+    
+    applySortAndRender();
+  }
+
   // Show fullscreen saved songs view
   function showFullscreenSavedSongs() {
     const savedSongsData = JSON.parse(
@@ -1077,7 +1092,7 @@ document.addEventListener("DOMContentLoaded", () => {
     instructions.innerHTML = `
       <strong>Search:</strong> Type to filter • 
       <kbd>↑</kbd><kbd>↓</kbd> Navigate • <kbd>Enter</kbd> Load Song • 
-      <kbd>O</kbd> Change Sort • <kbd>R</kbd> Rename • <kbd>Delete</kbd> Remove • <kbd>Esc</kbd> Clear/Close
+      <kbd>←</kbd><kbd>→</kbd> Change Sort • <kbd>R</kbd> Rename • <kbd>Delete</kbd> Remove • <kbd>Esc</kbd> Clear/Close
     `;
     fullscreenSongsView.appendChild(instructions);
 
@@ -1163,13 +1178,14 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         break;
 
-      case "o":
-      case "O":
-        // Only cycle sort mode if not focused on search input
-        if (!isSearchFocused) {
-          e.preventDefault();
-          cycleNextSortMode();
-        }
+      case "ArrowLeft":
+        e.preventDefault();
+        cyclePrevSortMode();
+        break;
+
+      case "ArrowRight":
+        e.preventDefault();
+        cycleNextSortMode();
         break;
 
       case "Escape":
