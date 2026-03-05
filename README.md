@@ -66,7 +66,7 @@ A free and open lyrics and chords teleprompter web application. This tool allows
 1. Clone this repository
 2. Host on any simple web server (no backend required)
 3. Open in a browser to begin using the teleprompter
-4. Alternatively check the live demo at https://lokkenpok.github.io/smoothieficator/
+4. Alternatively check the live demo at https://anttiak.github.io/smoothieficator/
 
 ## Privacy Note
 
